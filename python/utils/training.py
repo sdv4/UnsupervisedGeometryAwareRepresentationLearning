@@ -12,6 +12,7 @@ import matplotlib.image as mpimg
 import IPython
 import pickle
 
+
 # optimization function
 def create_supervised_trainer(model, optimizer, loss_fn, device=None):
     def _update(engine, batch):

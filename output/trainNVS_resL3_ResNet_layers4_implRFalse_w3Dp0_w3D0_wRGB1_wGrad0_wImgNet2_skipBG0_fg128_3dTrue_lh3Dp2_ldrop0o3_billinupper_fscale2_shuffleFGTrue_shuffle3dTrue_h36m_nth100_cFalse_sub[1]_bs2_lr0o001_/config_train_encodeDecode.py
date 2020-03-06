@@ -13,11 +13,11 @@ config_dict = {
     'label_types_train' : ['img_crop','3D','bounding_box_cam','intrinsic_crop','extrinsic_rot','extrinsic_rot_inv'],
     'label_types_test'  : ['img_crop','3D','bounding_box_cam','intrinsic_crop','extrinsic_rot','extrinsic_rot_inv'],
     'num_workers'       : 8,
-
+    
     # problem class parameters
     'bones' : skeleton.bones_h36m,
 
-    # opt parameters
+    # opt parameters    
     'num_training_iterations' : 600000,
     'save_every' : 100000,
     'learning_rate' : 1e-3,# baseline: 0.001=1e-3
@@ -31,17 +31,14 @@ config_dict = {
     'outputDimension_3d' : numJoints * 3,
     'outputDimension_2d' : inputDimension // 8,
 
-    # loss
+    # loss 
     'train_scale_normalized' : True,
     'train_crop_relative' : False,
 
     # dataset
-    # 'dataset_folder_train' : '/cvlabdata1/home/rhodin/code/humanposeannotation/python/pytorch_human_reconstruction/TMP/H36M-MultiView-train',
-    # 'dataset_folder_test' : '/cvlabdata1/home/rhodin/code/humanposeannotation/python/pytorch_human_reconstruction/TMP/H36M-MultiView-test',
+    'dataset_folder_train' : '/cvlabdata1/home/rhodin/code/humanposeannotation/python/pytorch_human_reconstruction/TMP/H36M-MultiView-train',
+    'dataset_folder_test' : '/cvlabdata1/home/rhodin/code/humanposeannotation/python/pytorch_human_reconstruction/TMP/H36M-MultiView-test',
     #'dataset_folder' :'/Users/rhodin/H36M-MultiView-test',
-
-    'dataset_folder_train' : './datasets/H36M-MultiView-train', #relative to /python/
-    'dataset_folder_test' : './datasets/H36M-MultiView-test',#relative to /python/
     'training_set' : 'h36m',
     'img_mean' : (0.485, 0.456, 0.406),
     'img_std' : (0.229, 0.224, 0.225),
@@ -57,7 +54,7 @@ config_dict = {
     'useCamBatches' : 4,
     'useSubjectBatches' : True,
     'every_nth_frame' : 100,
-
+    
     'note' : 'resL3',
 
     # encode decode
@@ -76,7 +73,7 @@ config_dict = {
     'loss_weight_imageNet' : 2,
     'loss_weight_3d' : 0,
     'do_maxpooling' : False,
-    'encoder_type' : 'UNet',
+    'encoderType' : 'UNet',
     'implicit_rotation' : False,
     'predict_rotation' : False,
     'skip_background' : True,
@@ -110,7 +107,7 @@ if 0:
 # RESNET
 if 1:
     config_dict['batch_size_train'] = 32
-    config_dict['encoder_type'] = 'ResNet'
+    config_dict['encoderType'] = 'ResNet'
 
 # dropout tests
 if 0:

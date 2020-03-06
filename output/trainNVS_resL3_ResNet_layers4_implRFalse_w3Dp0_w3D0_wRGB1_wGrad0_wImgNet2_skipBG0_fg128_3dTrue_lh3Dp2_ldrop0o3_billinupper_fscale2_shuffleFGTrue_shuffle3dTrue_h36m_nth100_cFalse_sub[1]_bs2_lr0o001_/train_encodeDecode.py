@@ -1,22 +1,30 @@
-import torch
-import torch.optim
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from datasets import collected_dataset
+import matplotlib.pyplot as plt
 
+from datasets import collected_dataset
+import sys, os, shutil
+
+import numpy as np
+import IPython
 
 from utils import io as utils_io
 from utils import datasets as utils_data
 from utils import training as utils_train
+from utils import plot_dict_batch as utils_plot_batch
 
-from models import unet_like_encode_3d
+from models import unet_encode3D
 from losses import generic as losses_generic
 from losses import images as losses_images
 
-
-
+import math
+import torch
+import torch.optim
+import torchvision
+import torchvision.transforms as transforms
+import torchvision.models as models_tv
 
 # for loading of training sets
 #sys.path.insert(0,'../pytorch_human_reconstruction')
@@ -43,7 +51,7 @@ class IgniteTrainNVS:
         config_dict['skip_background'] = config_dict.get('skip_background', True)
         config_dict['loss_weight_pose3D'] = config_dict.get('loss_weight_pose3D', 0)
         config_dict['n_hidden_to3Dpose'] = config_dict.get('n_hidden_to3Dpose', 2)
-
+        
         # create visualization windows
         try:
             import visdom
@@ -131,26 +139,27 @@ class IgniteTrainNVS:
 
         if lower_billinear:
             use_billinear_upsampling = False
-        network_single = unet_like_encode_3d.EncoderDecoder(dimension_bg=config_dict['latent_bg'],
-                                                      dimension_fg=config_dict['latent_fg'],
-                                                      dimension_3d=config_dict['latent_3d'],
-                                                      feature_scale=config_dict['feature_scale'],
-                                                      shuffle_fg=config_dict['shuffle_fg'],
-                                                      shuffle_3d=config_dict['shuffle_3d'],
-                                                      latent_dropout=config_dict['latent_dropout'],
-                                                      in_resolution=config_dict['inputDimension'],
-                                                      encoder_type=config_dict['encoder_type'],
-                                                      is_deconv=not use_billinear_upsampling,
-                                                      upper_billinear=upper_billinear,
-                                                      lower_billinear=lower_billinear,
-                                                      from_latent_hidden_layers=from_latent_hidden_layers,
-                                                      n_hidden_to3Dpose=config_dict['n_hidden_to3Dpose'],
-                                                      num_encoding_layers=num_encoding_layers,
-                                                      output_types=output_types,
-                                                      subbatch_size=config_dict['useCamBatches'],
-                                                      implicit_rotation=config_dict['implicit_rotation'],
-                                                      skip_background=config_dict['skip_background'],
-                                                      num_cameras=num_cameras)
+        network_single = unet_encode3D.unet(dimension_bg=config_dict['latent_bg'],
+                                            dimension_fg=config_dict['latent_fg'],
+                                            dimension_3d=config_dict['latent_3d'],
+                                            feature_scale=config_dict['feature_scale'],
+                                            shuffle_fg=config_dict['shuffle_fg'],
+                                            shuffle_3d=config_dict['shuffle_3d'],
+                                            latent_dropout=config_dict['latent_dropout'],
+                                            in_resolution=config_dict['inputDimension'],
+                                            encoderType=config_dict['encoderType'],
+                                            is_deconv=not use_billinear_upsampling,
+                                            upper_billinear=upper_billinear,
+                                            lower_billinear=lower_billinear,
+                                            from_latent_hidden_layers=from_latent_hidden_layers,
+                                            n_hidden_to3Dpose=config_dict['n_hidden_to3Dpose'],
+                                            num_encoding_layers=num_encoding_layers,
+                                            output_types=output_types,
+                                            subbatch_size=config_dict['useCamBatches'],
+                                            implicit_rotation=config_dict['implicit_rotation'],
+                                            skip_background=config_dict['skip_background'],
+                                            num_cameras=num_cameras,
+                                            )
 
         if 'pretrained_network_path' in config_dict.keys(): # automatic
             if config_dict['pretrained_network_path'] == 'MPII2Dpose':
@@ -174,7 +183,7 @@ class IgniteTrainNVS:
         return network_single
 
     def loadOptimizer(self,network, config_dict):
-        if network.encoder_type == "ResNet":
+        if network.encoderType == "ResNet":
             params_all_id = list(map(id, network.parameters()))
             params_resnet_id = list(map(id, network.encoder.parameters()))
             params_except_resnet = [i for i in params_all_id if i not in params_resnet_id]
@@ -263,7 +272,7 @@ class IgniteTrainNVS:
         return loss_train, loss_test
 
     def get_parameter_description(self, config_dict):#, config_dict):
-        folder = "../output/trainNVS_{note}_{encoder_type}_layers{num_encoding_layers}_implR{implicit_rotation}_w3Dp{loss_weight_pose3D}_w3D{loss_weight_3d}_wRGB{loss_weight_rgb}_wGrad{loss_weight_gradient}_wImgNet{loss_weight_imageNet}_skipBG{latent_bg}_fg{latent_fg}_3d{skip_background}_lh3Dp{n_hidden_to3Dpose}_ldrop{latent_dropout}_billin{upsampling_bilinear}_fscale{feature_scale}_shuffleFG{shuffle_fg}_shuffle3d{shuffle_3d}_{training_set}_nth{every_nth_frame}_c{active_cameras}_sub{actor_subset}_bs{useCamBatches}_lr{learning_rate}_".format(**config_dict)
+        folder = "../output/trainNVS_{note}_{encoderType}_layers{num_encoding_layers}_implR{implicit_rotation}_w3Dp{loss_weight_pose3D}_w3D{loss_weight_3d}_wRGB{loss_weight_rgb}_wGrad{loss_weight_gradient}_wImgNet{loss_weight_imageNet}_skipBG{latent_bg}_fg{latent_fg}_3d{skip_background}_lh3Dp{n_hidden_to3Dpose}_ldrop{latent_dropout}_billin{upsampling_bilinear}_fscale{feature_scale}_shuffleFG{shuffle_fg}_shuffle3d{shuffle_3d}_{training_set}_nth{every_nth_frame}_c{active_cameras}_sub{actor_subset}_bs{useCamBatches}_lr{learning_rate}_".format(**config_dict)
         folder = folder.replace(' ','').replace('../','[DOT_SHLASH]').replace('.','o').replace('[DOT_SHLASH]','../').replace(',','_')
         #config_dict['storage_folder'] = folder
         return folder

@@ -1,11 +1,12 @@
 import matplotlib.pyplot as plt
+
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d import proj3d
 
 import numpy as np
 import scipy.linalg as la
 
-def plot_2Dpose(ax, pose_2d, bones, bones_dashed=[], bones_dashdot=[], colormap='hsv', 
+def plot_2Dpose(ax, pose_2d, bones, bones_dashed=[], bones_dashdot=[], colormap='hsv',
                 linewidth=1, limits=None, color_order=[0, 5, 9, 15, 2, 10, 12, 4, 14, 13, 11, 3, 7, 8, 6, 1]):
     cmap = plt.get_cmap(colormap)
 
@@ -30,7 +31,7 @@ def plot3Dsphere(ax, p, radius=5, color=(0.5, 0.5, 0.5)):
     num_samples = 8
     u = np.linspace(0, 2 * np.pi, num_samples)
     v = np.linspace(0, np.pi, num_samples)
-    
+
     x = p[0] + radius * np.outer(np.cos(u), np.sin(v))
     y = p[1] + radius * np.outer(np.sin(u), np.sin(v))
     z = p[2] + radius * np.outer(np.ones(np.size(u)), np.cos(v))
@@ -38,7 +39,7 @@ def plot3Dsphere(ax, p, radius=5, color=(0.5, 0.5, 0.5)):
     c[:,:] = color
     #ax.plot_surface(x, y, z,  rstride=4, cstride=4, color=color, alpha=1)
     return x, y, z, c
- 
+
 def plot3Dcylinder(ax, p0, p1, radius=5, color=(0.5, 0.5, 0.5)):
     num_samples = 8
     origin = np.array([0, 0, 0])
@@ -83,8 +84,8 @@ def plot_3Dpose(ax, pose_3d, bones, radius=10, colormap='gist_rainbow', color_or
     else:
         X,Y,Z = np.squeeze(np.array(pose_3d[0,:])), np.squeeze(np.array(pose_3d[1,:])), np.squeeze(np.array(pose_3d[2,:]))
     XYZ = np.vstack([X,Y,Z])
-    
-    # dummy bridge that connects different components (set to transparent) 
+
+    # dummy bridge that connects different components (set to transparent)
     def bridge_vertices(xs,ys,zs,cs, x,y,z,c):
         num_samples = x.shape[0]
         if num_samples == 0: # don't build a bridge if there is no data
@@ -104,7 +105,7 @@ def plot_3Dpose(ax, pose_3d, bones, radius=10, colormap='gist_rainbow', color_or
         zs.append(z)
         cs.append(c)
         return
-        
+
     maximum = max(color_order) #len(bones)
     xs = []
     ys = []
@@ -124,10 +125,10 @@ def plot_3Dpose(ax, pose_3d, bones, radius=10, colormap='gist_rainbow', color_or
         #bridge_vertices(xs,ys,zs,cs, x,y,z,c)
         #x,y,z,c = plot3Dsphere(ax, XYZ[:,bone[1]], radius=radius*1.2, color=color)
         #bridge_vertices(xs,ys,zs,cs, x,y,z,c)
-        
+
     if len(xs) == 0:
         return
-        
+
     # merge all sufaces together to one big one
     x_full = np.hstack(xs)
     y_full = np.hstack(ys)
@@ -141,17 +142,17 @@ def plot_3Dpose(ax, pose_3d, bones, radius=10, colormap='gist_rainbow', color_or
     #    ax.set_xlim(-1.5, 1.5)
     #    ax.set_ylim(-1.5, 1.5)
     #    ax.set_zlim(-1.5, 1.5)
-        
+
     if set_limits:
         max_range = np.array([X.max()-X.min(), Y.max()-Y.min(), Z.max()-Z.min()]).max() / 2
-    
+
         mid_x = (X.max()+X.min()) * 0.5
         mid_y = (Y.max()+Y.min()) * 0.5
         mid_z = (Z.max()+Z.min()) * 0.5
         ax.set_xlim(mid_x - max_range, mid_x + max_range)
         ax.set_ylim(mid_y - max_range, mid_y + max_range)
         ax.set_zlim(mid_z - max_range, mid_z + max_range)
-    
+
     if transparentBG:
         ax.tick_params(
             axis='x',          # changes apply to the x-axis
@@ -174,7 +175,7 @@ def plot_3Dpose(ax, pose_3d, bones, radius=10, colormap='gist_rainbow', color_or
             top='off',         # ticks along the top edge are off
             labelbottom='off',
             labelsize=8) # labels along the bottom edge are off
-        
+
         # make the bg white
         ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
         ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
@@ -198,7 +199,8 @@ def plot_3Dpose_simple(ax, pose_3d, bones, linewidth=1, colormap='gist_rainbow',
         cmap = plt.get_cmap(colormap)
 
         plot_handles = {'lines': [], 'points': []}
-        plt.axis('equal')
+        #plt.axis('equal') #raises NotImplementedError in current version
+        plt.axis() # 3D plots can't have equal axes 
         maximum = len(bones)  # max(color_order) #len(bones)
         for i, bone in enumerate(bones):
             assert i < len(color_order)

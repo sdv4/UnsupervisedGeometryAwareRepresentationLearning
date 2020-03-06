@@ -10,14 +10,15 @@ import sys, os, shutil
 from utils import io as utils_io
 import numpy as np
 import torch
-torch.cuda.current_device() # to prevent  "Cannot re-initialize CUDA in forked subprocess." error on some configurations
 import torch.optim
-#import pickle
 import IPython
 
 import train_encodeDecode
 from losses import generic as losses_generic
 from losses import poses as losses_poses
+
+if torch.cuda.is_available():
+    torch.cuda.current_device() # to prevent  "Cannot re-initialize CUDA in forked subprocess." error on some configurations
 
 class IgniteTrainPose(train_encodeDecode.IgniteTrainNVS):
     def loadOptimizer(self, network, config_dict):
@@ -45,7 +46,7 @@ class IgniteTrainPose(train_encodeDecode.IgniteTrainNVS):
         if config_dict['training_set'] in ['h36m','h36m_mpii','h36m_cross']:
             weight = 17 / 16  # becasue spine is set to root = 0
         print("MPJPE test weight = {}, to normalize different number of joints".format(weight))
-    
+
         pose_key = '3D'
         loss_train = losses_generic.LossLabelMeanStdNormalized(pose_key, torch.nn.MSELoss())
         loss_test = losses_generic.LossLabelMeanStdUnNormalized(pose_key, losses_poses.Criterion3DPose_leastQuaresScaled(losses_poses.MPJPECriterion(weight)), scale_normalized=False)
