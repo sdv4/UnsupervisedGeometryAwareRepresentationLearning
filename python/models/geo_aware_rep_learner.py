@@ -1,8 +1,7 @@
 """
-    Module containing the Unet-based encoder-decoder and helper functions.
+    Module containing the representation learning functionality.
 """
 import random
-
 import torch
 import torch.nn as nn
 from torch.nn import Linear
@@ -16,92 +15,111 @@ from models.unet_utils import unetConv2
 from models.unet_utils import unetUpNoSKip
 from models.unet_utils import unetUp
 from models import MLP
+from models import encoder
 
-from models.geometry_aware_representation_learner import GeometryAwareLearner
 
-def quatCompact2mat(quat):
-    """Convert quaternion coefficients to rotation matrix.
-    Args:
-        quat: first three coeff of quaternion of rotation. fourth
-        is then computed to have a norm of 1 -- size = [B, 3]
-    Returns:
-        Rotation matrix corresponding to the quaternion -- size = [B, 3, 3]
+def _shuffle_segment(shuffled_appearance, start, end, training, num_cameras):
     """
-    norm_quat = torch.cat([quat[:, :1].detach()*0 + 1, quat], dim=1)
-    norm_quat = norm_quat/norm_quat.norm(p=2, dim=1, keepdim=True)
-    w, x, y, z = norm_quat[:, 0], norm_quat[:, 1], norm_quat[:, 2], norm_quat[:, 3]
-
-    B = quat.size(0)
-
-    w2, x2, y2, z2 = w.pow(2), x.pow(2), y.pow(2), z.pow(2)
-    wx, wy, wz = w*x, w*y, w*z
-    xy, xz, yz = x*y, x*z, y*z
-
-    rot_mat = torch.stack([w2 + x2 - y2 - z2, 2*xy - 2*wz, 2*wy + 2*xz,
-                           2*wz + 2*xy, w2 - x2 + y2 - z2, 2*yz - 2*wx,
-                           2*xz - 2*wy, 2*wx + 2*yz, w2 - x2 - y2 + z2], dim=1).view(B, 3, 3)
-    return rot_mat
-
-def quat2mat(quat):
-    """Convert quaternion coefficients to rotation matrix.
-    Args:
-        quat: coeff of quaternion of rotation, are normalized during conversion
-    Returns:
-        Rotation matrix corresponding to the quaternion -- size = [B, 3, 3]
+        Helper method for EncoderDecoder forward function.
+        :param shuffled_appearance:
+        :param start:
+        :param end:
+        :param training:
+        :param num_cameras:
     """
-    norm_quat = quat/quat.norm(p=2, dim=1, keepdim=True)
-    w, x, y, z = norm_quat[:, 0], norm_quat[:, 1], norm_quat[:, 2], norm_quat[:, 3]
+    selected = shuffled_appearance[start:end]
+    if training:
+        if 0 and end-start == 2:  # Not enabled in ECCV submission, disbled now too HACK
+            prob = np.random.random([1])
+            # assuming four cameras, make it more often that one of
+            # the others is taken, rather than just autoencoding
+            # (no flip, which would happen 50% otherwise):
+            if prob[0] > 1/num_cameras:
+                selected = selected[::-1]  # reverse
+            else:
+                pass  # let it as it is
+        else:
+            random.shuffle(selected)
 
-    B = quat.size(0)
-
-    w2, x2, y2, z2 = w.pow(2), x.pow(2), y.pow(2), z.pow(2)
-    wx, wy, wz = w*x, w*y, w*z
-    xy, xz, yz = x*y, x*z, y*z
-
-    rot_mat = torch.stack([w2 + x2 - y2 - z2, 2*xy - 2*wz, 2*wy + 2*xz,
-                           2*wz + 2*xy, w2 - x2 + y2 - z2, 2*yz - 2*wx,
-                           2*xz - 2*wy, 2*wx + 2*yz, w2 - x2 - y2 + z2], dim=1).view(B, 3, 3)
-    return rot_mat
+    else:  # deterministic shuffling for testing
+        selected = np.roll(selected, 1).tolist()
+    shuffled_appearance[start:end] = selected
 
 
-class EncoderDecoder(GeometryAwareLearner):
+def _flip_segment(shuffled_appearance, start, width):
     """
-        Modified Unet based encoder-decoder architecture.
+        Helper method for EncoderDecoder forward function.
+        :param shuffled_appearance:
+        :param start:
+        :param width:
+    """
+    selected = shuffled_appearance[start:start+width]
+    shuffled_appearance[start:start+width] = shuffled_appearance[start+width:start+2*width]
+    shuffled_appearance[start+width:start+2*width] = selected
+
+
+class GeoAwareRepLearner(nn.Module):
+    """
+
+        Args:
+            feature_scale (int): reduce dimensionality by given factor
+            in_resolution (int): resolution of input images
+            out_channels (int): number of output channels from decoder
+            is_deconv (bool): if True, increase dimensions in decoder via deconv, else via bilinear interpolation
+            upper_bilinear (bool): decoder will increase dimensionality via bilinear interpolation TODO: say where
+            lower_bilinear (bool): encoder will reduce dimensionality via bilinear interpolation TODO: say where
+            in_channels (int): number of input channels to the decoder. 3 for RBG images
+            is_batchnorm (bool): add batch-normalization operation after activation function in the encoder
+            skip_background (bool): #TODO
+            num_joints (int): number of joints for pose estimator to predict
+            nb_dims (int): number of dimensions in encoding transformation
+            encoder_type (string): specifies type of encoder to use - UNet or ResNet based
+            num_encoding_layers (int): number of conv layers to use in encoding (also determines num in decoding)
+            dimension_bg (int): num pixels on one side of square background image
+            dimension_fg (int): num pixels on one side of square forground image
+            dimension_3d (int): size of 3d geometry latent space. Must be divisible by 3
+            latent_dropout (float): dropout rate between latent space and PoseEstimator
+            shuffle_fg (bool): TODO
+            shuffle_3d (bool): TODO
+            from_latent_hidden_layers (bool): TODO
+            n_hidden_to3Dpose (int): number of fc layers between latent space and PoseEstimator
+            subbatch_size (int): TODO
+            implicit_rotation (bool): TODO
+            output_types (tuple): types of output to produce from forward function
+            num_cameras (int): number of cameras for each gt 3D pose annotation
     """
     def __init__(self,
-                 feature_scale=4, # to reduce dimensionality
+                 feature_scale=4,
                  in_resolution=256,
-                 output_channels=3,
+                 out_channels=3,
                  is_deconv=True,
-                 upper_billinear=False,
-                 lower_billinear=False,
+                 upper_bilinear=False,
+                 lower_bilinear=False,
                  in_channels=3,
                  is_batchnorm=True,
                  skip_background=True,
                  num_joints=17,
-                 nb_dims=3, # ecoding transformation
+                 nb_dims=3,
                  encoder_type='UNet',
                  num_encoding_layers=5,
                  dimension_bg=256,
                  dimension_fg=256,
-                 dimension_3d=3*64, # needs to be devidable by 3
+                 dimension_3d=3*64,
                  latent_dropout=0.3,
                  shuffle_fg=True,
                  shuffle_3d=True,
-                 from_latent_hidden_layers=0,
+                 from_latent_hidden_layers=False,
                  n_hidden_to3Dpose=2,
                  subbatch_size=4,
                  implicit_rotation=False,
-                 nb_stage=1, # number of U-net stacks
                  output_types=('3D', 'img_crop', 'shuffled_pose', 'shuffled_appearance'),
                  num_cameras=4):
-        super(EncoderDecoder, self).__init__()
+        super().__init__()
         self.in_resolution = in_resolution
         self.is_deconv = is_deconv
         self.in_channels = in_channels
         self.is_batchnorm = is_batchnorm
         self.feature_scale = feature_scale
-        self.nb_stage = nb_stage
         self.dimension_bg = dimension_bg
         self.dimension_fg = dimension_fg
         self.dimension_3d = dimension_3d
@@ -117,61 +135,33 @@ class EncoderDecoder(GeometryAwareLearner):
         self.skip_background = skip_background
         self.subbatch_size = subbatch_size
         self.latent_dropout = latent_dropout
-        #self.filters = [64, 128, 256, 512, 1024]
+        # self.filters = [64, 128, 256, 512, 1024]
         self.filters = [64, 128, 256, 512, 512, 512] # HACK
         self.filters = [int(x / self.feature_scale) for x in self.filters]
         self.bottleneck_resolution = in_resolution//(2**(num_encoding_layers-1))
+        self.from_latent_hidden_layers = from_latent_hidden_layers
         num_output_features = self.bottleneck_resolution**2 * self.filters[num_encoding_layers-1]
         print('bottleneck_resolution',
               self.bottleneck_resolution,
               'num_output_features',
               num_output_features)
 
-        ####################################
-        ############ encoder ###############
-        if self.encoder_type == "ResNet":
-            self.encoder = resnet_VNECT_3Donly.resnet50(pretrained=True,
-                                                        input_key='img_crop',
-                                                        output_keys=['latent_3d', '2D_heat'],
-                                                        input_width=in_resolution,
-                                                        num_classes=self.dimension_fg+self.dimension_3d)
+        # #  Initialize encoder  ####################################################################
 
-        ns = 0
-        setattr(self,
-                'conv_1_stage' + str(ns),
-                unetConv2(self.in_channels, self.filters[0], self.is_batchnorm, padding=1))
-        setattr(self, 'pool_1_stage' + str(ns), nn.MaxPool2d(kernel_size=2))
-        # note, first layer(li==1) is already created,
-        # last layer(li==num_encoding_layers) is created externally:
-        for li in range(2, num_encoding_layers):
-            setattr(self, 'conv_' + str(li) + '_stage' + str(ns),
-                    unetConv2(self.filters[li-2], self.filters[li-1],
-                              self.is_batchnorm, padding=1))
-            setattr(self,
-                    'pool_' + str(li) + '_stage' + str(ns),
-                    nn.MaxPool2d(kernel_size=2))
-
-        if from_latent_hidden_layers:
-            setattr(self,
-                    'conv_' + str(num_encoding_layers) + '_stage' + str(ns),
-                    nn.Sequential(unetConv2(self.filters[num_encoding_layers-2],
-                                            self.filters[num_encoding_layers-1],
-                                            self.is_batchnorm,
-                                            padding=1),
-                                  nn.MaxPool2d(kernel_size=2)))
-        else:
-            setattr(self,
-                    'conv_' + str(num_encoding_layers) + '_stage' + str(ns),
-                    unetConv2(self.filters[num_encoding_layers-2],
-                              self.filters[num_encoding_layers-1],
-                              self.is_batchnorm,
-                              padding=1))
-
+        self.encoder = encoder.Encoder(encoder_type=self.encoder_type,
+                                       in_resolution=self.in_resolution,
+                                       dimension_fg=self.dimension_fg,
+                                       dimension_3d=self.dimension_3d,
+                                       in_channels=self.in_channels,
+                                       filters=self.filters,
+                                       is_batchnorm=self.is_batchnorm,
+                                       num_encoding_layers=self.num_encoding_layers,
+                                       from_latent_hidden_layers=self.from_latent_hidden_layers)
         ####################################
         ############ background ###############
         if skip_background:
             setattr(self,
-                    'conv_1_stage_bg' + str(ns),
+                    'conv_1_stage_bg0',
                     unetConv2(self.in_channels,
                               self.filters[0],
                               self.is_batchnorm,
@@ -183,9 +173,9 @@ class EncoderDecoder(GeometryAwareLearner):
         num_output_features_3d = self.bottleneck_resolution**2 * \
                                  (self.filters[num_encoding_layers-1] - \
                                   self.dimension_fg)
-        #setattr(self, 'fc_1_stage' + str(ns), Linear(num_output_features, 1024))
-        setattr(self, 'fc_1_stage' + str(ns), Linear(self.dimension_3d, 128))
-        setattr(self, 'fc_2_stage' + str(ns), Linear(128, num_joints * nb_dims))
+        #  setattr(self, 'fc_1_stage0', Linear(num_output_features, 1024))
+        setattr(self, 'fc_1_stage0', Linear(self.dimension_3d, 128))
+        setattr(self, 'fc_2_stage0', Linear(128, num_joints * nb_dims))
 
         self.to_pose = MLP.MLP_fromLatent(d_in=self.dimension_3d,
                                           d_hidden=2048,
@@ -216,7 +206,7 @@ class EncoderDecoder(GeometryAwareLearner):
                                                     Dropout(inplace=True, p=self.latent_dropout),
                                                     ReLU(inplace=False))
 
-        if from_latent_hidden_layers:
+        if self.from_latent_hidden_layers:
             hidden_layer_dimension = 1024
             if self.dimension_fg > 0:
                 self.to_fg = nn.Sequential(Linear(num_output_features, 256), # HACK pooling
@@ -240,14 +230,13 @@ class EncoderDecoder(GeometryAwareLearner):
                                              Dropout(inplace=True, p=self.latent_dropout),
                                              ReLU(inplace=False))
 
-        ####################################
-        ############ decoder ###############
-        upper_conv = self.is_deconv and not upper_billinear
-        lower_conv = self.is_deconv and not lower_billinear
+        #  Initialize decoder  ####################################################################
+        upper_conv = self.is_deconv and not upper_bilinear
+        lower_conv = self.is_deconv and not lower_bilinear
         if self.skip_connections:
             for li in range(1, num_encoding_layers-1):
                 setattr(self,
-                        'upconv_' + str(li) + '_stage' + str(ns),
+                        'upconv_' + str(li) + '_stage0',
                         unetUp(self.filters[num_encoding_layers-li],
                                self.filters[num_encoding_layers-li-1],
                                upper_conv,
@@ -255,7 +244,7 @@ class EncoderDecoder(GeometryAwareLearner):
         else:
             for li in range(1, num_encoding_layers-1):
                 setattr(self,
-                        'upconv_' + str(li) + '_stage' + str(ns),
+                        'upconv_' + str(li) + '_stage0',
                         unetUpNoSKip(self.filters[num_encoding_layers-li],
                                      self.filters[num_encoding_layers-li-1],
                                      upper_conv,
@@ -263,14 +252,14 @@ class EncoderDecoder(GeometryAwareLearner):
 
         if self.skip_connections or self.skip_background:
             setattr(self,
-                    'upconv_' + str(num_encoding_layers-1) + '_stage' + str(ns),
+                    'upconv_' + str(num_encoding_layers-1) + '_stage0',
                     unetUp(self.filters[1], self.filters[0], lower_conv, padding=1))
         else:
             setattr(self,
-                    'upconv_' + str(num_encoding_layers-1) + '_stage' + str(ns),
+                    'upconv_' + str(num_encoding_layers-1) + '_stage0',
                     unetUpNoSKip(self.filters[1], self.filters[0], lower_conv, padding=1))
 
-        setattr(self, 'final_stage' + str(ns), nn.Conv2d(self.filters[0], output_channels, 1))
+        setattr(self, 'final_stage0', nn.Conv2d(self.filters[0], out_channels, 1))
 
         self.relu = ReLU(inplace=True)
         self.relu2 = ReLU(inplace=False)
@@ -337,37 +326,35 @@ class EncoderDecoder(GeometryAwareLearner):
 
         ###############################################
         # encoding stage
-        ns = 0
+
         has_fg = hasattr(self, "to_fg")
-        if self.encoder_type == "ResNet":
-            #IPython.embed()
-            output = self.encoder.forward(input_dict_cropped)['latent_3d']
-            if has_fg:
-                latent_fg = output[:, :self.dimension_fg]
-            latent_3d = output[:, self.dimension_fg:self.dimension_fg + \
-                                  self.dimension_3d].contiguous().view(batch_size, -1, 3)
-        else: # UNet encoder
-            out_enc_conv = input_dict_cropped['img_crop']
+        latent_3d, latent_fg = self.encoder(has_fg, input_dict_cropped, batch_size)
+        # if self.encoder_type == "ResNet":
+        #     output = self.encoder.forward(input_dict_cropped)['latent_3d']
+        #     if has_fg:
+        #         latent_fg = output[:, :self.dimension_fg]
+        #     latent_3d = output[:, self.dimension_fg:self.dimension_fg + \
+        #                           self.dimension_3d].contiguous().view(batch_size, -1, 3)
+        # else: # UNet encoder
+        #     out_enc_conv = input_dict_cropped['img_crop']
+        #
+        #     # note, first layer(li==1) is already created,
+        #     # last layer(li==num_encoding_layers) is created externally
+        #     for li in range(1, self.num_encoding_layers):
+        #         out_enc_conv = getattr(self, 'conv_' + str(li) + '_stage0')(out_enc_conv)
+        #         out_enc_conv = getattr(self, 'pool_' + str(li) + '_stage0')(out_enc_conv)
+        #     out_enc_conv = getattr(self, 'conv_' + str(self.num_encoding_layers) + '_stage0')(out_enc_conv)
+        #
+        #     # fully-connected
+        #     center_flat = out_enc_conv.view(batch_size, -1)
+        #     if has_fg:
+        #         latent_fg = self.to_fg(center_flat)
+        #     latent_3d = self.to_3d(center_flat).view(batch_size, -1, 3)
 
-            # note, first layer(li==1) is already created,
-            # last layer(li==num_encoding_layers) is created externally
-            for li in range(1, self.num_encoding_layers):
-                out_enc_conv = getattr(self, 'conv_' + str(li) + '_stage' + str(ns))(out_enc_conv)
-                out_enc_conv = getattr(self, 'pool_' + str(li) + '_stage' + str(ns))(out_enc_conv)
-            out_enc_conv = getattr(self, 'conv_' + \
-                                         str(self.num_encoding_layers) + \
-                                         '_stage' + \
-                                         str(ns))(out_enc_conv)
-            # fully-connected
-            center_flat = out_enc_conv.view(batch_size, -1)
-            if has_fg:
-                latent_fg = self.to_fg(center_flat)
-            latent_3d = self.to_3d(center_flat).view(batch_size, -1, 3)
-
-        if self.skip_background:
+        if self.skip_background:  # send bg to the decoder
             input_bg = input_dict['bg_crop'] # TODO take the rotated one/ new view
             input_bg_shuffled = torch.index_select(input_bg, dim=0, index=shuffled_pose)
-            conv1_bg_shuffled = getattr(self, 'conv_1_stage_bg' + str(ns))(input_bg_shuffled)
+            conv1_bg_shuffled = getattr(self, 'conv_1_stage_bg0')(input_bg_shuffled)
 
         ###############################################
         # latent rotation (to shuffled view)
@@ -419,18 +406,18 @@ class EncoderDecoder(GeometryAwareLearner):
         else:
             out_deconv = latent_shuffled
             for li in range(1, self.num_encoding_layers-1):
-                out_deconv = getattr(self, 'upconv_' + str(li) + '_stage' + str(ns))(out_deconv)
+                out_deconv = getattr(self, 'upconv_' + str(li) + '_stage0')(out_deconv)
 
             if self.skip_background:
                 out_deconv = getattr(self, 'upconv_' + \
                                      str(self.num_encoding_layers-1) + \
-                                     '_stage' + str(ns))(conv1_bg_shuffled, out_deconv)
+                                     '_stage0')(conv1_bg_shuffled, out_deconv)
             else:
                 out_deconv = getattr(self, 'upconv_' + \
                                      str(self.num_encoding_layers-1) + \
-                                     '_stage' + str(ns))(out_deconv)
+                                     '_stage0')(out_deconv)
 
-        output_img_shuffled = getattr(self, 'final_stage' + str(ns))(out_deconv)
+        output_img_shuffled = getattr(self, 'final_stage0')(out_deconv)
 
         ###############################################
         # de-shuffling

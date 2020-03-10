@@ -11,7 +11,7 @@ from utils import io as utils_io
 from utils import datasets as utils_data
 from utils import training as utils_train
 
-from models import unet_like_encode_3d
+from models import geo_aware_rep_learner
 from losses import generic as losses_generic
 from losses import images as losses_images
 
@@ -32,6 +32,7 @@ if torch.cuda.is_available():
     device = "cuda:0"
 else:
     device = "cpu"
+
 
 class IgniteTrainNVS:
     def run(self, config_dict_file, config_dict):
@@ -118,39 +119,39 @@ class IgniteTrainNVS:
     def load_network(self, config_dict):
         output_types= config_dict['output_types']
 
-        use_billinear_upsampling = config_dict.get('upsampling_bilinear', False)
-        lower_billinear = 'upsampling_bilinear' in config_dict.keys() and config_dict['upsampling_bilinear'] == 'half'
-        upper_billinear = 'upsampling_bilinear' in config_dict.keys() and config_dict['upsampling_bilinear'] == 'upper'
+        use_bilinear_upsampling = config_dict.get('upsampling_bilinear', False)
+        lower_bilinear = 'upsampling_bilinear' in config_dict.keys() and config_dict['upsampling_bilinear'] == 'half'
+        upper_bilinear = 'upsampling_bilinear' in config_dict.keys() and config_dict['upsampling_bilinear'] == 'upper'
 
         from_latent_hidden_layers = config_dict.get('from_latent_hidden_layers', 0)
         num_encoding_layers = config_dict.get('num_encoding_layers', 4)
 
         num_cameras = 4
-        if config_dict['active_cameras']: # for H36M it is set to False
+        if config_dict['active_cameras']:  # for H36M it is set to False
             num_cameras = len(config_dict['active_cameras'])
 
-        if lower_billinear:
-            use_billinear_upsampling = False
-        network_single = unet_like_encode_3d.EncoderDecoder(dimension_bg=config_dict['latent_bg'],
-                                                      dimension_fg=config_dict['latent_fg'],
-                                                      dimension_3d=config_dict['latent_3d'],
-                                                      feature_scale=config_dict['feature_scale'],
-                                                      shuffle_fg=config_dict['shuffle_fg'],
-                                                      shuffle_3d=config_dict['shuffle_3d'],
-                                                      latent_dropout=config_dict['latent_dropout'],
-                                                      in_resolution=config_dict['inputDimension'],
-                                                      encoder_type=config_dict['encoder_type'],
-                                                      is_deconv=not use_billinear_upsampling,
-                                                      upper_billinear=upper_billinear,
-                                                      lower_billinear=lower_billinear,
-                                                      from_latent_hidden_layers=from_latent_hidden_layers,
-                                                      n_hidden_to3Dpose=config_dict['n_hidden_to3Dpose'],
-                                                      num_encoding_layers=num_encoding_layers,
-                                                      output_types=output_types,
-                                                      subbatch_size=config_dict['useCamBatches'],
-                                                      implicit_rotation=config_dict['implicit_rotation'],
-                                                      skip_background=config_dict['skip_background'],
-                                                      num_cameras=num_cameras)
+        if lower_bilinear:
+            use_bilinear_upsampling = False
+        network_single = geo_aware_rep_learner.GeoAwareRepLearner(dimension_bg=config_dict['latent_bg'],
+                                                                  dimension_fg=config_dict['latent_fg'],
+                                                                  dimension_3d=config_dict['latent_3d'],
+                                                                  feature_scale=config_dict['feature_scale'],
+                                                                  shuffle_fg=config_dict['shuffle_fg'],
+                                                                  shuffle_3d=config_dict['shuffle_3d'],
+                                                                  latent_dropout=config_dict['latent_dropout'],
+                                                                  in_resolution=config_dict['inputDimension'],
+                                                                  encoder_type=config_dict['encoder_type'],
+                                                                  is_deconv=not use_bilinear_upsampling,
+                                                                  upper_bilinear=upper_bilinear,
+                                                                  lower_bilinear=lower_bilinear,
+                                                                  from_latent_hidden_layers=from_latent_hidden_layers,
+                                                                  n_hidden_to3Dpose=config_dict['n_hidden_to3Dpose'],
+                                                                  num_encoding_layers=num_encoding_layers,
+                                                                  output_types=output_types,
+                                                                  subbatch_size=config_dict['useCamBatches'],
+                                                                  implicit_rotation=config_dict['implicit_rotation'],
+                                                                  skip_background=config_dict['skip_background'],
+                                                                  num_cameras=num_cameras)
 
         if 'pretrained_network_path' in config_dict.keys(): # automatic
             if config_dict['pretrained_network_path'] == 'MPII2Dpose':
@@ -164,7 +165,6 @@ class IgniteTrainNVS:
                 pretrained_states = torch.load(pretrained_network_path, map_location=device)
                 utils_train.transfer_partial_weights(pretrained_states, network_single, submodule=0) # last argument is to remove "network.single" prefix in saved network
                 print("Done loading weights from config_dict['pretrained_network_path']")
-
         if 'pretrained_posenet_network_path' in config_dict.keys(): # automatic
             print("Loading weights from config_dict['pretrained_posenet_network_path']")
             pretrained_network_path = config_dict['pretrained_posenet_network_path']
@@ -173,32 +173,41 @@ class IgniteTrainNVS:
             print("Done loading weights from config_dict['pretrained_posenet_network_path']")
         return network_single
 
-    def loadOptimizer(self,network, config_dict):
+    def loadOptimizer(self, network, config_dict):
+        """
+            Function to create the optimizer object with the learning rates assigned
+            to each parameter group of a given network.
+
+        :param network: model of type GeoAwareRepLearner whose params will be optimized
+        :param config_dict: configuration directives for training. Elements are set in
+                            config_train_encodeDecode.py
+        :return: the optimizer that will be used to train network
+        """
         if network.encoder_type == "ResNet":
             params_all_id = list(map(id, network.parameters()))
-            params_resnet_id = list(map(id, network.encoder.parameters()))
+            params_resnet_id = list(map(id, network.encoder.encoder.parameters()))
             params_except_resnet = [i for i in params_all_id if i not in params_resnet_id]
 
             # for the more complex setup
-            params_toOptimize_id = (params_except_resnet
-                             + list(map(id, network.encoder.layer4_reg.parameters()))
-                             + list(map(id, network.encoder.layer3.parameters()))
-                             + list(map(id, network.encoder.l4_reg_toVec.parameters()))
-                             + list(map(id, network.encoder.fc.parameters())))
-            params_toOptimize    = [p for p in network.parameters() if id(p) in params_toOptimize_id]
+            params_to_optimize_id = (params_except_resnet
+                                    + list(map(id, network.encoder.encoder.layer4_reg.parameters()))
+                                    + list(map(id, network.encoder.encoder.layer3.parameters()))
+                                    + list(map(id, network.encoder.encoder.l4_reg_toVec.parameters()))
+                                    + list(map(id, network.encoder.encoder.fc.parameters())))
+            params_to_optimize = [p for p in network.parameters() if id(p) in params_to_optimize_id]
 
-            params_static_id = [id_p for id_p in params_all_id if not id_p in params_toOptimize_id]
+            params_static_id = [id_p for id_p in params_all_id if not id_p in params_to_optimize_id]
 
             # disable gradient computation for static params, saves memory and computation
             for p in network.parameters():
                 if id(p) in params_static_id:
                     p.requires_grad = False
 
-            print("Normal learning rate: {} params".format(len(params_toOptimize_id)))
+            print("Normal learning rate: {} params".format(len(params_to_optimize_id)))
             print("Static learning rate: {} params".format(len(params_static_id)))
             print("Total: {} params".format(len(params_all_id)))
 
-            opt_params = [{'params': params_toOptimize, 'lr': config_dict['learning_rate']}]
+            opt_params = [{'params': params_to_optimize, 'lr': config_dict['learning_rate']}]
             optimizer = torch.optim.Adam(opt_params, lr=config_dict['learning_rate']) #weight_decay=0.0005
         else:
             optimizer = torch.optim.Adam(network.parameters(), lr=config_dict['learning_rate'])
@@ -264,8 +273,8 @@ class IgniteTrainNVS:
 
     def get_parameter_description(self, config_dict):#, config_dict):
         folder = "../output/trainNVS_{note}_{encoder_type}_layers{num_encoding_layers}_implR{implicit_rotation}_w3Dp{loss_weight_pose3D}_w3D{loss_weight_3d}_wRGB{loss_weight_rgb}_wGrad{loss_weight_gradient}_wImgNet{loss_weight_imageNet}_skipBG{latent_bg}_fg{latent_fg}_3d{skip_background}_lh3Dp{n_hidden_to3Dpose}_ldrop{latent_dropout}_billin{upsampling_bilinear}_fscale{feature_scale}_shuffleFG{shuffle_fg}_shuffle3d{shuffle_3d}_{training_set}_nth{every_nth_frame}_c{active_cameras}_sub{actor_subset}_bs{useCamBatches}_lr{learning_rate}_".format(**config_dict)
-        folder = folder.replace(' ','').replace('../','[DOT_SHLASH]').replace('.','o').replace('[DOT_SHLASH]','../').replace(',','_')
-        #config_dict['storage_folder'] = folder
+        folder = folder.replace(' ', '').replace('../', '[DOT_SHLASH]').replace('.', 'o').replace('[DOT_SHLASH]', '../').replace(',', '_')
+        # config_dict['storage_folder'] = folder
         return folder
 
 

@@ -30,16 +30,10 @@ config_dict = {
     'batch_size_test' : 16, #10 #self.batch_size # Note, needs to be = self.batch_size for multi-view validation
     'outputDimension_3d' : numJoints * 3,
     'outputDimension_2d' : inputDimension // 8,
-
     # loss
     'train_scale_normalized' : True,
     'train_crop_relative' : False,
-
     # dataset
-    # 'dataset_folder_train' : '/cvlabdata1/home/rhodin/code/humanposeannotation/python/pytorch_human_reconstruction/TMP/H36M-MultiView-train',
-    # 'dataset_folder_test' : '/cvlabdata1/home/rhodin/code/humanposeannotation/python/pytorch_human_reconstruction/TMP/H36M-MultiView-test',
-    #'dataset_folder' :'/Users/rhodin/H36M-MultiView-test',
-
     'dataset_folder_train' : './datasets/H36M-MultiView-train', #relative to /python/
     'dataset_folder_test' : './datasets/H36M-MultiView-test',#relative to /python/
     'training_set' : 'h36m',
@@ -57,9 +51,7 @@ config_dict = {
     'useCamBatches' : 4,
     'useSubjectBatches' : True,
     'every_nth_frame' : 100,
-
     'note' : 'resL3',
-
     # encode decode
     'latent_bg' : 0,
     'latent_fg' : 24,
@@ -84,20 +76,20 @@ config_dict = {
 
 # learning rate influence
 config_dict['learning_rate'] = 1e-3
-config_dict['actor_subset']  = [1,5,6,7,8]
+config_dict['actor_subset'] = [1, 5, 6, 7, 8]
 
 config_dict['batch_size_train'] = 16
 config_dict['batch_size_test'] = 8
 
 config_dict['latent_fg'] = 128; config_dict['feature_scale'] = 2
 
-config_dict['loss_weight_rgb']      = 1
+config_dict['loss_weight_rgb'] = 1
 config_dict['loss_weight_gradient'] = 0
 config_dict['loss_weight_imageNet'] = 2
 
 config_dict['useCamBatches'] = 2
 
-# classic auto encoder, with some billinear layers
+# classic auto encoder, with some bilinear layers
 if 0:
     config_dict['shuffle_fg'] = False
 if 0:
@@ -126,6 +118,6 @@ if 1:
 
 # smaller unsupervised subsets
 if 1:
-    config_dict['actor_subset'] = [1,5,6,7,8]
+    config_dict['actor_subset'] = [1, 5, 6, 7, 8]
     #config_dict['actor_subset'] = [1,5,6]
     config_dict['actor_subset'] = [1]

@@ -5,13 +5,14 @@ from utils import datasets as utils_data
 from utils import plot_dict_batch as utils_plot_batch
 
 import sys
+
+
 sys.path.insert(0,'./ignite')
 from ignite.engine.engine import Engine, State, Events
 
 import matplotlib.image as mpimg
 import IPython
 import pickle
-
 
 # optimization function
 def create_supervised_trainer(model, optimizer, loss_fn, device=None):
@@ -26,6 +27,7 @@ def create_supervised_trainer(model, optimizer, loss_fn, device=None):
         return loss.item(), y_pred
     engine = Engine(_update)
     return engine
+
 
 def create_supervised_evaluator(model, metrics={}, device=None):
     def _inference(engine, batch):  
@@ -43,7 +45,8 @@ def create_supervised_evaluator(model, metrics={}, device=None):
         metric.attach(engine, name)
 
     return engine
-    
+
+
 def save_training_error(save_path, engine, vis, vis_windows):
     # log training error
     iteration = engine.state.iteration - 1
@@ -63,6 +66,7 @@ def save_training_error(save_path, engine, vis, vis_windows):
     with open(log_name, 'a') as the_file:
         the_file.write('{},{}\n'.format(iteration, loss))
 
+
 def save_testing_error(save_path, trainer, evaluator, vis, vis_windows):
     metrics = evaluator.state.metrics
     iteration = trainer.state.iteration
@@ -77,7 +81,6 @@ def save_testing_error(save_path, trainer, evaluator, vis, vis_windows):
                          update='append' if title in vis_windows else None,
                          win=vis_windows.get(title, None),
                          opts=dict(xlabel="# iteration", ylabel="value", title=title))
-
     # also save as .txt for plotting
     log_name = os.path.join(save_path, 'debug_log_testing.txt')
     if iteration ==0:
@@ -86,7 +89,8 @@ def save_testing_error(save_path, trainer, evaluator, vis, vis_windows):
     with open(log_name, 'a') as the_file:
         the_file.write('{},{}\n'.format(iteration, ",".join(map(str, accuracies)) ))
     return sum(accuracies)
-        
+
+
 def save_training_example(save_path, engine, vis, vis_windows, config_dict):
     # print training examples
     iteration = engine.state.iteration - 1
@@ -102,6 +106,7 @@ def save_training_example(save_path, engine, vis, vis_windows, config_dict):
         vis_windows[title] = vis.image(img.transpose(2,0,1), win=vis_windows.get(title, None),
              opts=dict(title=title+" (iteration {})".format(iteration)))
 
+
 def save_test_example(save_path, trainer, evaluator, vis, vis_windows, config_dict):
     iteration_global = trainer.state.iteration
     iteration = evaluator.state.iteration - 1
@@ -115,13 +120,15 @@ def save_test_example(save_path, trainer, evaluator, vis, vis_windows, config_di
         title="Testing example"+" (test iteration {})".format(iteration)
         vis_windows[title] = vis.image(img.transpose(2,0,1), win=vis_windows.get(title,None),
                                     opts=dict(title=title+" (training iteration {})".format(iteration_global)))
-    
+
+
 def load_model_state(save_path, model, optimizer, state):
     model.load_state_dict(torch.load(os.path.join(save_path,"network_best_val_t1.pth")))
     optimizer.load_state_dict(torch.load(os.path.join(save_path,"optimizer_best_val_t1.pth")))
     sate_variables = pickle.load(open(os.path.join(save_path,"state_last_best_val_t1.pickle"),'rb'))
     for key, value in sate_variables.items(): setattr(state, key, value)
     print('Loaded ',sate_variables)
+
 
 def save_model_state(save_path, engine, current_loss, model, optimizer, state):
     # update the best value
@@ -147,6 +154,8 @@ def save_model_state(save_path, engine, current_loss, model, optimizer, state):
 
 # Fix of original Ignite Loss to not depend on single tensor output but to accept dictionaries
 from ignite.metrics import Metric
+
+
 class AccumulatedLoss(Metric):
     """
     Calculates the average loss according to the passed loss_fn.
@@ -176,20 +185,61 @@ class AccumulatedLoss(Metric):
     
     
 def transfer_partial_weights(state_dict_other, obj, submodule=0, prefix=None, add_prefix=''):
+    """
+    Transfer pre-trained weights from a given state dictionary to a given model of the same class.
+
+    :param state_dict_other: the state_dict from the saved model
+    :param obj: the model whose weights will be loaded from state_dict_other
+    :param submodule:
+    :param prefix:
+    :param add_prefix:
+    :return: None, as all operations are done to obj in place
+    """
     print('Transferring weights...')
-    
-    if 0:
-        print('\nStates source\n')
-        for name, param in state_dict_other.items():
-            print(name)
-        print('\nStates target\n')
-        for name, param in obj.state_dict().items():
-            print(name)
-        
+
     own_state = obj.state_dict()
-    copyCount = 0
-    skipCount = 0
+    own_encoder_state = 0
+    own_decoder_state = 0
+    # TODO: refactor once no longer using legacy code
+    if hasattr(obj, 'encoder'):
+        own_encoder_state = obj.encoder.state_dict()
+    if hasattr(obj, 'decoder'):
+        own_decoder_state = obj.decoder.state_dict()
+    copy_count = 0
+    skip_count = 0
     paramCount = len(own_state)
+
+    def _copy_weights(state, name, param):
+        """
+
+        :param state: list of parameter names
+        :param name: the name of the parameter to be loaded
+        :param param: the parameter values for name
+        :return: copy or skip; the counter to increments
+        """
+        copy = 0
+        if hasattr(state[name], 'copy_'):  # isinstance(own_state[name], torch.Tensor):
+            # print('copy_ ',name)
+            if state[name].size() == param.size():
+                state[name].copy_(param)
+                copy = 1
+            else:
+                print(
+                    'Invalid param size(own={} vs. source={}), skipping {}'.format(own_state[name].size(), param.size(),
+                                                                                   name))
+        elif hasattr(own_state[name], 'copy'):
+            own_state[name] = param.copy()
+            copy = 1
+        else:
+            print('training.utils: Warning, unhandled element type for name={}, name_raw={}'.format(name, name_raw))
+            print(type(own_state[name]))
+            IPython.embed()
+
+        if copy:
+            return 'copy'
+        else:
+            return 'skip'
+
 
     for name_raw, param in state_dict_other.items():
         if isinstance(param, torch.nn.Parameter):
@@ -203,26 +253,26 @@ def transfer_partial_weights(state_dict_other, obj, submodule=0, prefix=None, ad
         name = add_prefix+".".join(name_raw.split('.')[submodule:])
 
         if name in own_state:
-            if hasattr(own_state[name],'copy_'): #isinstance(own_state[name], torch.Tensor):
-                #print('copy_ ',name)
-                if own_state[name].size() == param.size():
-                    own_state[name].copy_(param)
-                    copyCount += 1
-                else:
-                    print('Invalid param size(own={} vs. source={}), skipping {}'.format(own_state[name].size(), param.size(), name))
-                    skipCount += 1
-            
-            elif hasattr(own_state[name],'copy'):
-                own_state[name] = param.copy()
-                copyCount += 1
+            inc_me = _copy_weights(own_state, name, param)
+            if inc_me == 'copy':
+                copy_count += 1
             else:
-                print('training.utils: Warning, unhandled element type for name={}, name_raw={}'.format(name,name_raw))
-                print(type(own_state[name]))
-                skipCount += 1
-                IPython.embed()
+                skip_count += 1
+        elif own_encoder_state != 0 and name in own_encoder_state:
+            inc_me = _copy_weights(own_encoder_state, name, param)
+            if inc_me == 'copy':
+                copy_count += 1
+            else:
+                skip_count += 1
+        elif own_decoder_state != 0 and name in own_decoder_state:
+            inc_me = _copy_weights(own_decoder_state, name, param)
+            if inc_me == 'copy':
+                copy_count += 1
+            else:
+                skip_count += 1
         else:
-            skipCount += 1
+            skip_count += 1
             print('Warning, no match for {}, ignoring'.format(name))
-            #print(' since own_state.keys() = ',own_state.keys())
+            # print(' since own_state.keys() = ',own_state.keys())
             
-    print('Copied {} elements, {} skipped, and {} target params without source'.format(copyCount, skipCount, paramCount-copyCount))
+    print('Copied {} elements, {} skipped, and {} target params without source'.format(copy_count, skip_count, paramCount-copy_count))

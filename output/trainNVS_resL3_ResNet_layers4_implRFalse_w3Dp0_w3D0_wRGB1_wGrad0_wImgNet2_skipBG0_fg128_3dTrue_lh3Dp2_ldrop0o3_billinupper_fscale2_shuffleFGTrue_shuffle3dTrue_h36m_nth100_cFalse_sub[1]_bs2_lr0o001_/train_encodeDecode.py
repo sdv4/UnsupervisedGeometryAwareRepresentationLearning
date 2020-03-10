@@ -36,8 +36,8 @@ from ignite._utils import convert_tensor
 from ignite.engine import Events
 
 if torch.cuda.is_available():
-    torch.cuda.current_device() # to prevent  "Cannot re-initialize CUDA in forked subprocess." error on some configurations
-    device = "cuda:0"
+    torch.cuda.current_device()  # prevent "Cannot reinitialize CUDA in forked subprocess." error on some configurations
+    device = "cuda:3"
 else:
     device = "cpu"
 
