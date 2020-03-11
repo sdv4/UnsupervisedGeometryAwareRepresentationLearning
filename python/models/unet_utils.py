@@ -61,16 +61,16 @@ class unetConv2(nn.Module):
         super(unetConv2, self).__init__()
 
         if is_batchnorm:
-            self.conv1 = nn.Sequential(nn.Conv2d(in_size, out_size, 3, 1, padding),
+            self.conv1 = nn.Sequential(nn.Conv2d(in_size, out_size, kernel_size=3, stride=1, padding=padding),
                                        nn.BatchNorm2d(out_size),
                                        nn.ReLU(),)
-            self.conv2 = nn.Sequential(nn.Conv2d(out_size, out_size, 3, 1, padding),
+            self.conv2 = nn.Sequential(nn.Conv2d(out_size, out_size, kernel_size=3, stride=1, padding=padding),
                                        nn.BatchNorm2d(out_size),
                                        nn.ReLU(),)
         else:
-            self.conv1 = nn.Sequential(nn.Conv2d(in_size, out_size, 3, 1, padding),
+            self.conv1 = nn.Sequential(nn.Conv2d(in_size, out_size, kernel_size=3, stride=1, padding=padding),
                                        nn.ReLU(),)
-            self.conv2 = nn.Sequential(nn.Conv2d(out_size, out_size, 3, 1, padding),
+            self.conv2 = nn.Sequential(nn.Conv2d(out_size, out_size, kernel_size=3, stride=1, padding=padding),
                                        nn.ReLU(),)
     def forward(self, inputs):
         outputs = self.conv1(inputs)
@@ -85,10 +85,8 @@ class unetUp(nn.Module):
         if is_deconv:
             self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
         else:
-            #self.up = nn.UpsamplingBilinear2d(scale_factor=2)
             self.up = nn.Sequential(
                              nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                             #nn.UpsamplingBilinear2d(scale_factor=2),
                              nn.Conv2d(in_size, out_size, 3, stride=1, padding=1),
                              nn.BatchNorm2d(out_size),
                              nn.ReLU()
@@ -108,10 +106,8 @@ class unetUpNoSKip(nn.Module):
         if is_deconv:
             self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
         else:
-            #self.up = nn.UpsamplingBilinear2d(scale_factor=2)
             self.up = nn.Sequential(
                              nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                             #nn.UpsamplingBilinear2d(scale_factor=2),
                              nn.Conv2d(in_size, out_size, 3, stride=1, padding=1),
                              nn.BatchNorm2d(out_size),
                              nn.ReLU()

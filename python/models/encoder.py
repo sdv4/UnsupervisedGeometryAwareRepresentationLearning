@@ -72,7 +72,6 @@ class Encoder(nn.Module):
         """
         if self.encoder_type == "ResNet":
             output = self.encoder(input_dict_cropped)['latent_3d']
-            print("output shape: ", output.shape)
             if has_fg:
                 latent_fg = output[:, :self.dimension_fg]
             latent_3d = output[:, self.dimension_fg:self.dimension_fg + \

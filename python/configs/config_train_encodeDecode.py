@@ -4,6 +4,7 @@ from utils import skeleton
 numJoints = 17
 inputDimension = 128
 
+# default parameters. NOTE: set experimental parameters after dictionary definition
 config_dict = {
     # general params
     'dpi' : 190,
@@ -87,7 +88,7 @@ config_dict['loss_weight_rgb'] = 1
 config_dict['loss_weight_gradient'] = 0
 config_dict['loss_weight_imageNet'] = 2
 
-config_dict['useCamBatches'] = 2
+config_dict['useCamBatches'] = 4
 
 # classic auto encoder, with some bilinear layers
 if 0:
@@ -120,4 +121,4 @@ if 1:
 if 1:
     config_dict['actor_subset'] = [1, 5, 6, 7, 8]
     #config_dict['actor_subset'] = [1,5,6]
-    config_dict['actor_subset'] = [1]
+    #config_dict['actor_subset'] = [1]
