@@ -15,7 +15,7 @@ config_dict['label_types_test'] += ['pose_mean', 'pose_std']
 config_dict['label_types_train'] += ['pose_mean', 'pose_std']
 config_dict['latent_dropout'] = 0
 
-config_dict['shuffle_fg'] = False
+config_dict['swap_appearance'] = False
 config_dict['shuffle_3d'] = False
 config_dict['actor_subset'] = [1]
 config_dict['useCamBatches'] = 0

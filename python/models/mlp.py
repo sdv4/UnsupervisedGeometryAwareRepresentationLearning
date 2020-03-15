@@ -6,9 +6,9 @@ import torch
 import torch.nn as nn
 
 
-class MLP_fromLatent(nn.Module):
+class MLPFromLatent(nn.Module):
     def __init__(self, d_in, d_hidden, d_out, n_hidden=1, key='latent_3d', dropout=0.5):
-        super(MLP_fromLatent, self).__init__()
+        super(MLPFromLatent, self).__init__()
         self.dropout = dropout
         self.key=key
         

@@ -60,7 +60,7 @@ config_dict = {
     'latent_dropout' : 0.3,
     'from_latent_hidden_layers' : 0,
     'upsampling_bilinear' : 'upper',
-    'shuffle_fg' : True,
+    'swap_appearance' : True,
     'shuffle_3d' : True,
     'feature_scale' : 4,
     'num_encoding_layers' : 4,
@@ -92,7 +92,7 @@ config_dict['useCamBatches'] = 4
 
 # classic auto encoder, with some bilinear layers
 if 0:
-    config_dict['shuffle_fg'] = False
+    config_dict['swap_appearance'] = False
 if 0:
     config_dict['shuffle_3d'] = False
 
@@ -102,7 +102,7 @@ if 0:
 
 # RESNET
 if 1:
-    config_dict['batch_size_train'] = 32
+    config_dict['batch_size_train'] = 8
     config_dict['encoder_type'] = 'ResNet'
 
 # dropout tests
