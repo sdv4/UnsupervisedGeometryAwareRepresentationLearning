@@ -127,7 +127,8 @@ class ResNetTwoStream(nn.Module):
                         nn.Sigmoid(),
             )
          
-        # size computation of fc input: /16 in resnet, /2 in toMap, -3 in map since no padding but 3x3 (-1) and 5x5 (-2) kernels
+        # size computation of fc input:
+        # /16 in resnet, /2 in toMap, -3 in map since no padding but 3x3 (-1) and 5x5 (-2) kernels
         l4_vec_width     = int(input_width/32)-3 
         l4_vec_dimension = 128*l4_vec_width*l4_vec_width
         heat_vec_width     = int(input_width/32)-3

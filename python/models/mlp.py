@@ -1,8 +1,14 @@
-import torch
+"""
+Module with class defining the MLP used to classify latent variables to 3D joint positions.
 
-class MLP_fromLatent(torch.nn.Module):
+"""
+import torch
+import torch.nn as nn
+
+
+class MLPFromLatent(nn.Module):
     def __init__(self, d_in, d_hidden, d_out, n_hidden=1, key='latent_3d', dropout=0.5):
-        super(MLP_fromLatent, self).__init__()
+        super(MLPFromLatent, self).__init__()
         self.dropout = dropout
         self.key=key
         

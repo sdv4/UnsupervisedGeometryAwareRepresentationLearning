@@ -1,0 +1,8 @@
+.DS_Store
+__pycache__
+.ipynb_checkpoint
+network_best_val_t1.pth
+.idea
+.ipynb_checkpoints
+/output/
+/python/datasets/

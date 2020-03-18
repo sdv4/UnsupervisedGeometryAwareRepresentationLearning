@@ -24,7 +24,7 @@ import pickle
 
 
 class CollectedDataset(data.Dataset):
-    def __init__(self, data_folder, 
+    def __init__(self, data_folder,
                  input_types, label_types,
                  mean=(0.485, 0.456, 0.406),
                  stdDev= (0.229, 0.224, 0.225),
@@ -53,7 +53,7 @@ class CollectedDataset(data.Dataset):
 
     def __len__(self):
         return len(self.label_dict['frame'])
-               
+
     def getLocalIndices(self, index):
         input_dict = {}
         cam = int(self.label_dict['cam'][index].item())
@@ -170,11 +170,11 @@ class CollectedDatasetSampler(data.sampler.Sampler):
 
 if __name__ == '__main__':
     dataset = CollectedDataset(
-                 data_folder='/Users/rhodin/H36M-MultiView-test',
+                 data_folder='./H36M-MultiView-test',
                  input_types=['img_crop','bg_crop'], label_types=['3D'])
 
     batch_sampler = CollectedDatasetSampler(
-                 data_folder='/Users/rhodin/H36M-MultiView-test',
+                 data_folder='./H36M-MultiView-test',
                  useSubjectBatches=1, useCamBatches=2,
                  batch_size=8,
                  randomize=True)
@@ -186,4 +186,3 @@ if __name__ == '__main__':
     # iterate over batches
     for input, labels in iter(trainloader):
         IPython.embed()
-

@@ -42,7 +42,7 @@ Moreover you will need an X Windows System (e.g.,XQuartz for mac) to run the int
 Test the pretrained model
 =======================
 
-A pre-trained model can then be tested with 
+A pre-trained model can then be tested by running the following command from within the code root folder.
 ```
 python configs/test_encodeDecode.py
 ```
@@ -59,10 +59,10 @@ Training your own model requires more dependencies:
 * Visdom (optional, for graphical display of training progress, https://github.com/facebookresearch/visdom)
 * **H3.6M dataset** and dataloader (I provide my own dataloader for reference, but it is based on some preprocessed version of Human3.6Million which I can't share due to the original license.)
 
-Self-supervised Representation Learning 
+Self-supervised Representation Learning
 =======================================
 
-After downloading and file extraction, you should be able to start training by executing the following scrip from within the code root folder.
+After downloading and file extraction, move H36M-MultiView-train and H36M-MultiView-train to the datasets folder (/python/datasets/). Start training by executing the following scrip from within the code root folder.
 ```
 python configs/train_encodeDecode.py
 ```
@@ -86,7 +86,7 @@ Test your model
 =======================
 
 As before, you have to set the 'network_path' in configs/config_test_encodeDecode.py.
-The trained model can then be tested as before with 
+The trained model can then be tested as before with
 ```
 python configs/test_encodeDecode.py
 ```
