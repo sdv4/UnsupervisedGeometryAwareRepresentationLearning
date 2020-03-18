@@ -1,5 +1,6 @@
 """
-    Module containing the representation learning functionality.
+    Module containing the representation learning object.
+    TODO: factor out training functionality
 """
 import random
 import torch
@@ -11,8 +12,6 @@ from torch.nn import Dropout
 import numpy as np
 
 from models.unet_utils import unetConv2
-from models.unet_utils import unetUpNoSKip
-from models.unet_utils import unetUp
 from models import mlp
 from models import encoder
 from models import unet_decoder
@@ -21,7 +20,7 @@ from models import unet_decoder
 def _shuffle_within_segment(to_shuffle, start, end, training, num_cameras):
     """ Shuffles elements within a portion of a given list.
         Helper method for GeoAwareRepLearner forward function used to
-        shuffle within subbatches and run over the entire batch.
+        shuffle within sub-batches and run over the entire batch.
 
         TODO: make doctest allows for randomness of function
         Args:
@@ -33,13 +32,13 @@ def _shuffle_within_segment(to_shuffle, start, end, training, num_cameras):
 
         Example:
 
-            batch_indicies = [0, 1, 2, 3, 4, 5, 6, 7]
-            _shuffle_within_segment(batch_indicies, 0, 4, True, 4)
+            batch_indices = [0, 1, 2, 3, 4, 5, 6, 7]
+            _shuffle_within_segment(batch_indices, 0, 4, True, 4)
             = [3, 1, 0, 2, 4, 5, 6, 7]
     """
     selected = to_shuffle[start:end]
     if training:
-        if 0 and end-start == 2:  # Not enabled in ECCV submission, disbled now too HACK
+        if 0 and end-start == 2:  # Not enabled in ECCV submission, disabled now too HACK
             prob = np.random.random([1])
             # assuming four cameras, make it more often that one of
             # the others is taken, rather than just autoencoding
@@ -67,8 +66,8 @@ def _flip_segment(to_shuffle, start, width):
 
         Example:
 
-            batch_indicies = [0, 1, 2, 3, 4, 5, 6, 7]
-            _flip_segment(batch_indicies, 0, 4)
+            batch_indices = [0, 1, 2, 3, 4, 5, 6, 7]
+            _flip_segment(batch_indices, 0, 4)
             = [4, 5, 6, 7, 0, 1, 2, 3]
     """
     selected = to_shuffle[start:start+width]
@@ -89,13 +88,13 @@ class GeoAwareRepLearner(nn.Module):
             lower_bilinear (bool): encoder will reduce dimensionality via bilinear interpolation
             in_channels (int): number of input channels to the decoder. 3 for RBG images
             is_batchnorm (bool): add batch-normalization operation after activation function in the encoder
-            skip_background (bool): sends the background image to the decoder when True #TODO confirm correct
+            skip_background (bool): sends the background image to the decoder when True
             num_joints (int): number of joints for pose estimator to predict
             num_dims (int): number of dimensions in encoding transformation
             encoder_type (string): specifies type of encoder to use - UNet or ResNet based
             num_encoding_layers (int): number of conv layers to use in encoding (also determines num in decoding)
-            dimension_bg (int): num pixels on one side of square background image
-            dimension_fg (int): num pixels on one side of square foreground image
+            dimension_bg (int): num pixels on one side of square background image * 2
+            dimension_fg (int): num pixels on one side of square foreground image * 2
             dimension_3d (int): size of 3d geometry latent space. Must be divisible by 3
             latent_dropout (float): dropout rate between latent space and PoseEstimator
             swap_appearance (bool): if True swap the appearance of the primary image with another
@@ -180,7 +179,7 @@ class GeoAwareRepLearner(nn.Module):
 
         #######################################
         ############ background ###############
-        if self.skip_background: # add skip connection giving bg to decoder TODO confirm correct description. why not conv1D?
+        if self.skip_background: # add skip connection giving bg to decoder TODO shouldn't this be conv1D?
             setattr(self,
                     'conv_1_stage_bg0',
                     unetConv2(self.in_channels,
@@ -248,8 +247,8 @@ class GeoAwareRepLearner(nn.Module):
                                              Dropout(inplace=True, p=self.latent_dropout),
                                              ReLU(inplace=False))
 
+        ######################################################################################################
         #  Create and initialize decoder  ####################################################################
-
         self.decoder = unet_decoder.UnetDecoder(upper_bilinear=self.upper_bilinear,
                                                 lower_bilinear=self.lower_bilinear,
                                                 is_deconv=self.is_deconv,
@@ -262,6 +261,13 @@ class GeoAwareRepLearner(nn.Module):
 
 
     def forward(self, input_dict):
+        """
+        Args:
+            input_dict (dict): dictionary containing keys and values required for forward pass
+
+        Returns:
+            output_dict (dict): a dictionary containing entries for each of the values in 'output_types'
+        """
         input = input_dict['img_crop']
         device = input.device
         batch_size = input.size()[0]
@@ -270,7 +276,7 @@ class GeoAwareRepLearner(nn.Module):
         # Determine shuffling
         shuffled_appearance = list(range(batch_size))
         shuffled_pose = list(range(batch_size))        # TODO: what is this? why would we swap pose?
-        num_pose_subbatches = batch_size//np.maximum(self.subbatch_size, 1)  # TODO: confirm: the number of pairs of subbatches in the batch with the same user but different times ex. 8//4 = 2
+        num_pose_subbatches = batch_size//np.maximum(self.subbatch_size, 1)  # TODO: confirm the number of pairs of subbatches in the batch with the same user but different times ex. 8//4 = 2
         rotation_by_user = not self.training and 'external_rotation_cam' in input_dict.keys()
 
         if not rotation_by_user:
@@ -304,8 +310,8 @@ class GeoAwareRepLearner(nn.Module):
             shuffled_pose_inv[v] = i
 
         shuffled_appearance = torch.LongTensor(shuffled_appearance).to(device)
-        shuffled_pose = torch.LongTensor(shuffled_pose).to(device)
-        shuffled_pose_inv = torch.LongTensor(shuffled_pose_inv).to(device)
+        shuffled_pose = torch.LongTensor(shuffled_pose).to(device)  #  ex. shuffled_pose = [2, 0, 1, 3, 4, 7, 6, 5]
+        shuffled_pose_inv = torch.LongTensor(shuffled_pose_inv).to(device)  # ex. shuffled_pose_inv = [1, 2, 0, 3, 4, 7, 6, 5]
 
         if rotation_by_user:
             if 'shuffled_appearance' in input_dict.keys():
@@ -314,7 +320,11 @@ class GeoAwareRepLearner(nn.Module):
         ###############################################
         # determine shuffled rotation
         cam_2_world = input_dict['extrinsic_rot_inv'].view((batch_size, 3, 3)).float()
+        print("cam_2_world shape: ", cam_2_world.shape)
+        print("cam_2_world: ", cam_2_world)
         world_2_cam = input_dict['extrinsic_rot'].view((batch_size, 3, 3)).float()
+        print("world_2_cam shape: ", world_2_cam.shape)
+        print("world_2_cam: ", world_2_cam)
         if rotation_by_user:
             external_cam = input_dict['external_rotation_cam'].view(1, 3, 3).expand((batch_size, 3, 3))
             external_glob = input_dict['external_rotation_global'].view(1, 3, 3).expand((batch_size, 3, 3))
@@ -342,7 +352,7 @@ class GeoAwareRepLearner(nn.Module):
         if self.skip_background:  # send bg to the decoder
             input_bg = input_dict['bg_crop'] # TODO take the rotated one/ new view
             input_bg_shuffled = torch.index_select(input_bg, dim=0, index=shuffled_pose)
-            conv1_bg_shuffled = getattr(self, 'conv_1_stage_bg0')(input_bg_shuffled)            #  TODO: why not used?
+            conv1_bg_shuffled = getattr(self, 'conv_1_stage_bg0')(input_bg_shuffled)
 
         ###############################################
         # latent rotation (to shuffled view)
@@ -371,46 +381,9 @@ class GeoAwareRepLearner(nn.Module):
                                       latent_fg_shuffled
 
         ###############################################
-        # decoding
+        # decoding # TODO: can we remove lines above that would allow has_fg to be false? decoder requires fg as implemented
         map_from_3d = self.from_latent(latent_3d_rotated.view(batch_size, -1))
         output_img_shuffled = self.decoder(map_from_3d, latent_fg_shuffled, conv1_bg_shuffled, batch_size)
-
-
-
-        # map_from_3d = self.from_latent(latent_3d_rotated.view(batch_size, -1))  # the output from NN that takes in the latent variable
-        # map_width = self.bottleneck_resolution #out_enc_conv.size()[2]
-        # map_channels = self.filters[self.num_encoding_layers-1] #out_enc_conv.size()[1]
-        # if has_fg:
-        #     latent_fg_shuffled_replicated = latent_fg_shuffled.view(batch_size,
-        #                                                             self.dimension_fg, 1,
-        #                                                             1).expand(batch_size,
-        #                                                                       self.dimension_fg,
-        #                                                                       map_width,
-        #                                                                       map_width)
-        #     latent_shuffled = torch.cat([latent_fg_shuffled_replicated,
-        #                                  map_from_3d.view(batch_size,
-        #                                                   map_channels-self.dimension_fg,
-        #                                                   map_width, map_width)], dim=1)
-        # else:
-        #     latent_shuffled = map_from_3d.view(batch_size, map_channels, map_width, map_width)
-        #
-        # if self.skip_connections:
-        #     assert False
-        # else:
-        #     out_deconv = latent_shuffled
-        #     for li in range(1, self.num_encoding_layers-1):
-        #         out_deconv = getattr(self, 'upconv_' + str(li) + '_stage0')(out_deconv)
-        #
-        #     if self.skip_background:
-        #         out_deconv = getattr(self, 'upconv_' + \
-        #                              str(self.num_encoding_layers-1) + \
-        #                              '_stage0')(conv1_bg_shuffled, out_deconv)
-        #     else:
-        #         out_deconv = getattr(self, 'upconv_' + \
-        #                              str(self.num_encoding_layers-1) + \
-        #                              '_stage0')(out_deconv)
-        #
-        # output_img_shuffled = getattr(self, 'final_stage0')(out_deconv)
 
         ###############################################
         # de-shuffling

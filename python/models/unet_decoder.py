@@ -3,7 +3,6 @@
 """
 import torch
 import torch.nn as nn
-from models.unet_utils import unetConv2
 from models.unet_utils import unetUpNoSKip
 from models.unet_utils import unetUp
 from models.decoder import Decoder
