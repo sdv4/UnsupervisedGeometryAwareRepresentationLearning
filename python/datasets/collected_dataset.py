@@ -1,26 +1,16 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-import os
-import csv
 import numpy as np
 import torch
 import torchvision
 import torch.utils.data as data
-
 import h5py
 import imageio
-
 from random import shuffle
-
 import IPython
-
-import numpy.linalg as la
-
 from utils import datasets as utils_data
 from tqdm import tqdm
-import pickle
 
 
 class CollectedDataset(data.Dataset):
@@ -30,7 +20,7 @@ class CollectedDataset(data.Dataset):
                  stdDev= (0.229, 0.224, 0.225),
                  useSequentialFrames=0,
                  ):
-        for arg,val in list(locals().items()):
+        for arg, val in list(locals().items()):
             setattr(self, arg, val)
 
         class Image256toTensor(object):

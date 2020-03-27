@@ -1,5 +1,6 @@
 import torch
 import torch.optim
+import torch.nn as nn
 import os
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -10,29 +11,60 @@ from utils import training as utils_train
 from models import geo_aware_rep_learner
 from losses import generic as losses_generic
 from losses import images as losses_images
-sys.path.insert(0, './ignite')
+# for loading of training sets
+#sys.path.insert(0,'../pytorch_human_reconstruction')
+#import pytorch_datasets.dataset_factory as dataset_factory
+import sys
+sys.path.insert(0,'./ignite')
 from ignite.engine import Events
-
 if torch.cuda.is_available():
-    torch.cuda.current_device()  # prevent "Cannot re-initialize CUDA in forked subprocess." error
+    torch.cuda.current_device() # to prevent  "Cannot re-initialize CUDA in forked subprocess." error on some configurations
     device = "cuda:3"
 else:
     device = "cpu"
 
+# custom weights initialization called on netG and netD TODO move to own module with Discriminator class
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+
+class Discriminator(nn.Module):
+    def __init__(self, ngpu):
+        super(Discriminator, self).__init__()
+        nc = 3 # TODO move to config_dict
+        ndf = 128 # TODO move to config_dict
+        self.ngpu = ngpu
+        self.main = nn.Sequential(
+            # input is (nc) x 64 x 64
+            nn.Conv2d(nc, ndf, kernel_size=4, stride=2, padding=1, bias=False), # out size: 32x32
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf) x 32 x 32
+            nn.Conv2d(ndf, ndf * 2, kernel_size=4, stride=2, padding=1, bias=False), # out size: 16x16
+            nn.BatchNorm2d(ndf * 2),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf*2) x 16 x 16
+            nn.Conv2d(ndf * 2, ndf * 4, kernel_size=4, stride=2, padding=1, bias=False), # out size: 8x8
+            nn.BatchNorm2d(ndf * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf*4) x 8 x 8
+            nn.Conv2d(ndf * 4, ndf * 8, kernel_size=4, stride=2, padding=1, bias=False), # out size: 4x4
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (ndf*8) x 4 x 4
+            nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=8, padding=0, bias=False), # out size: 1x1
+            nn.Sigmoid()
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
 
 class IgniteTrainNVS:
-    """
-        TODO
-    """
     def run(self, config_dict_file, config_dict):
-        """
-
-        Args:
-            config_dict_file (__file__): variable holding the path to the file holding the config_dict initialization
-            config_dict (dict): holds information required for training the model
-        Returns:
-
-        """
         #config_dict_test = {k:v for k,v in config_dict.items()}
         #config_dict_cams = {k:v for k,v in config_dict.items()}
 
@@ -64,22 +96,30 @@ class IgniteTrainNVS:
         epochs = 40
         train_loader = self.load_data_train(config_dict)
         test_loader = self.load_data_test(config_dict)
-        model = self.load_network(config_dict)
-        model = model.to(device)
-        optimizer = self.loadOptimizer(model, config_dict)
+        netG = self.load_network(config_dict)
+        netG = netG.to(device)
+        optimizerG = self.load_optimizer(netG, config_dict)
         loss_train, loss_test = self.load_loss(config_dict)
 
-        trainer = utils_train.create_supervised_trainer(model, optimizer, loss_train, device=device)
-        evaluator = utils_train.create_supervised_evaluator(model,
-                                                metrics={#'accuracy': CategoricalAccuracy(),
-                                                         'primary': utils_train.AccumulatedLoss(loss_test)},
-                                                device=device)
+        netD = Discriminator(ngpu=1).to(device)
+        # Apply the weights_init function to randomly initialize all weights
+        #  to mean=0, stdev=0.2.
+        netD.apply(weights_init)
+        optimizerD = self.load_optimizer(netD, config_dict, is_discriminator=True)
+        loss_dis = nn.BCELoss()
+        loss_gen = nn.BCELoss()
+        #def create_adversarial_trainer(netG, netD, optimizerG, optimizerD, loss_fn, device=None):
 
+        trainer = utils_train.create_adversarial_trainer(netG, netD, optimizerG, optimizerD,
+                                                         loss_fn_gen=loss_gen, loss_fn_dis=loss_dis, device=device)
+        evaluator = utils_train.create_supervised_evaluator(netG,
+                                                            metrics={#'accuracy': CategoricalAccuracy(),
+                                                                     'primary': utils_train.AccumulatedLoss(loss_test)},
+                                                            device=device)
 
         #@trainer.on(Events.STARTED)
         def load_previous_state(engine):
             utils_train.load_previous_state(save_path, model, optimizer, engine.state)
-
 
         @trainer.on(Events.ITERATION_COMPLETED)
         def log_training_progress(engine):
@@ -91,7 +131,6 @@ class IgniteTrainNVS:
             # log batch example image
             if iteration in [0,100] or iteration % config_dict['plot_every'] == 0:
                 utils_train.save_training_example(save_path, engine, vis, vis_windows, config_dict)
-
 
         #@trainer.on(Events.EPOCH_COMPLETED)
         @trainer.on(Events.ITERATION_COMPLETED)
@@ -106,7 +145,6 @@ class IgniteTrainNVS:
             # save the best model
             utils_train.save_model_state(save_path, trainer, avg_accuracy, model, optimizer, engine.state)
 
-
         # print test result
         @evaluator.on(Events.ITERATION_COMPLETED)
         def log_test_loss(engine):
@@ -114,10 +152,8 @@ class IgniteTrainNVS:
             if iteration in [0,100]:
                 utils_train.save_test_example(save_path, trainer, evaluator, vis, vis_windows, config_dict)
 
-
         # kick everything off
         trainer.run(train_loader, max_epochs=epochs)
-
 
     def load_network(self, config_dict):
         output_types= config_dict['output_types']
@@ -156,7 +192,6 @@ class IgniteTrainNVS:
                                                                   skip_background=config_dict['skip_background'],
                                                                   num_cameras=num_cameras)
 
-
         if 'pretrained_network_path' in config_dict.keys(): # automatic
             if config_dict['pretrained_network_path'] == 'MPII2Dpose':
                 pretrained_network_path = '/cvlabdata1/home/rhodin/code/humanposeannotation/output_save/CVPR18_H36M/TransferLearning2DNetwork/h36m_23d_crop_relative_s1_s5_aug_from2D_2017-08-22_15-52_3d_resnet/models/network_000000.pth'
@@ -177,7 +212,7 @@ class IgniteTrainNVS:
             print("Done loading weights from config_dict['pretrained_posenet_network_path']")
         return network_single
 
-    def loadOptimizer(self, network, config_dict):
+    def load_optimizer(self, network, config_dict, is_discriminator=False):
         """
             Function to create the optimizer object with the learning rates assigned
             to each parameter group of a given network.
@@ -185,9 +220,10 @@ class IgniteTrainNVS:
         :param network: model of type GeoAwareRepLearner whose params will be optimized
         :param config_dict: configuration directives for training. Elements are set in
                             config_train_encodeDecode.py
+        :param is_discriminator (boolean): True if function being called to create optimizer for GAN discriminator
         :return: the optimizer that will be used to train network
         """
-        if network.encoder_type == "ResNet":
+        if not is_discriminator and network.encoder_type == "ResNet":
             params_all_id = list(map(id, network.parameters()))
             params_resnet_id = list(map(id, network.encoder.encoder.parameters()))
             params_except_resnet = [i for i in params_all_id if i not in params_resnet_id]
@@ -211,10 +247,16 @@ class IgniteTrainNVS:
             print("Static learning rate: {} params".format(len(params_static_id)))
             print("Total: {} params".format(len(params_all_id)))
 
-            opt_params = [{'params': params_to_optimize, 'lr': config_dict['learning_rate']}]
-            optimizer = torch.optim.Adam(opt_params, lr=config_dict['learning_rate']) #weight_decay=0.0005
+
+
+            opt_params = [{'params': params_to_optimize, 'lr': config_dict['generator_learning_rate']}]
+            optimizer = torch.optim.Adam(opt_params, lr=config_dict['generator_learning_rate']) #weight_decay=0.0005
         else:
-            optimizer = torch.optim.Adam(network.parameters(), lr=config_dict['learning_rate'])
+            if is_discriminator:
+                optimizer = torch.optim.Adam(network.parameters(), lr=config_dict['discriminator_learning_rate'],
+                                             betas=(config_dict['beta1'], config_dict['beta2']))
+            else:
+                optimizer = torch.optim.Adam(network.parameters(), lr=config_dict['generator_learning_rate'])
         return optimizer
 
     def load_data_train(self,config_dict):
@@ -262,10 +304,10 @@ class IgniteTrainNVS:
         losses_test = []
 
         if 'img_crop' in config_dict['output_types']:
-            if config_dict['loss_weight_rgb'] > 0:
+            if config_dict['loss_weight_rgb']>0:
                 losses_train.append(image_pixel_loss)
                 losses_test.append(image_pixel_loss)
-            if config_dict['loss_weight_imageNet'] > 0:
+            if config_dict['loss_weight_imageNet']>0:
                 losses_train.append(image_imgNet_loss)
                 losses_test.append(image_imgNet_loss)
 
@@ -275,11 +317,7 @@ class IgniteTrainNVS:
         # annotation and pred is organized as a list, to facilitate multiple output types (e.g. heatmap and 3d loss)
         return loss_train, loss_test
 
-
-    def get_parameter_description(self, config_dict):
-        """
-            Creates a string that describes the contents of the training configuration dictionary.
-        """
+    def get_parameter_description(self, config_dict):#, config_dict):
         folder = "../output/trainNVS_{note}_{encoder_type}_layers{num_encoding_layers}_implR{implicit_rotation}_w3Dp{loss_weight_pose3D}_w3D{loss_weight_3d}_wRGB{loss_weight_rgb}_wGrad{loss_weight_gradient}_wImgNet{loss_weight_imageNet}_skipBG{latent_bg}_fg{latent_fg}_3d{skip_background}_lh3Dp{n_hidden_to3Dpose}_ldrop{latent_dropout}_billin{upsampling_bilinear}_fscale{feature_scale}_shuffleFG{swap_appearance}_shuffle3d{shuffle_3d}_{training_set}_nth{every_nth_frame}_c{active_cameras}_sub{actor_subset}_bs{useCamBatches}_lr{learning_rate}_".format(**config_dict)
         folder = folder.replace(' ', '').replace('../', '[DOT_SHLASH]').replace('.', 'o').replace('[DOT_SHLASH]', '../').replace(',', '_')
         # config_dict['storage_folder'] = folder
@@ -287,7 +325,7 @@ class IgniteTrainNVS:
 
 
 if __name__ == "__main__":
-    config_dict_module = utils_io.loadModule("configs/config_train_encodeDecode.py")
+    config_dict_module = utils_io.loadModule("configs/config_train_gan_encodeDecode.py")
     config_dict = config_dict_module.config_dict
     ignite = IgniteTrainNVS()
     ignite.run(config_dict_module.__file__, config_dict)

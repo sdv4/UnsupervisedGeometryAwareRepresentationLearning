@@ -14,6 +14,7 @@ import matplotlib.image as mpimg
 import IPython
 import pickle
 
+
 # optimization function
 def create_supervised_trainer(model, optimizer, loss_fn, device=None):
     def _update(engine, batch):
@@ -28,6 +29,76 @@ def create_supervised_trainer(model, optimizer, loss_fn, device=None):
     engine = Engine(_update)
     return engine
 
+def create_adversarial_trainer(netG, netD, optimizerG, optimizerD, loss_fn_gen, loss_fn_dis, device=None):
+    """
+
+    Args:
+        netG: generator model
+        netD: discriminator model
+        optimizerG: optimization function
+
+    """
+    def _update(engine, batch):
+        """
+
+        Args:
+            engine (engine.Engine):
+            batch (list): tuple with dictionary at each position. Index 0 contains input images, rotation info, and
+                        target background. Index 1 contains target input images (i.e. rotated images), 3D joint positions,
+                        bounding TODO give better/full description of the contents
+        Returns:
+
+        """
+        real_label = 1 # mark data as real
+        fake_label = 0 # mark data as fake
+
+        # update discriminator network
+
+        # train with all real batch
+        netD.zero_grad()
+        real_data, _ = utils_data.nestedDictToDevice(batch, device=device) # make it work for dict input too
+        b_size = batch[0]['img_crop'].size(0)
+
+        label = torch.full((b_size,), real_label, device=device)
+
+        output = netD(real_data['img_crop']).view(-1)
+        #print("batch[0] keys: ", batch[0].keys())
+        #print("batch[0]['img_crop'] shape: ", batch[0]['img_crop'].shape)
+        #print("batch[0]['extrinsic_rot'] shape: ", batch[0]['extrinsic_rot'].shape)
+        #print("batch[1] keys: ", batch[1].keys())
+        error_D_real = loss_fn_dis(output, label)
+        error_D_real.backward()
+        D_x = output.mean().item()
+
+        # train with all fake batch
+        netG.train() # TODO why?
+        input_imgs, rotated_tgt_imgs = utils_data.nestedDictToDevice(batch, device=device) # TODO will this work for non-random input?
+        fake = netG(input_imgs)
+        label.fill_(fake_label)
+        output = netD(fake['img_crop'].detach()).view(-1)
+        errD_fake = loss_fn_dis(output, label)
+        errD_fake.backward()
+        D_G_z1 = output.mean().item()
+        optimizerD.step()
+
+        # update generator network
+        netG.zero_grad()
+        label.fill_(real_label)  # fake labels are real for generator cost
+        output = netD(fake['img_crop']).view(-1)
+        errG = loss_fn_gen(output, label) # as in tutorial
+        """        
+        x, y = utils_data.nestedDictToDevice(batch, device=device) # make it work for dict input too
+        y_pred = model(x)
+        loss = loss_fn(y_pred, y)
+        loss.backward()
+        """
+        errG.backward()
+        D_G_z2 = output.mean().item()
+        optimizerG.step()
+        print("here!!!!!!!!!!!!!")
+        return errG.item(), fake
+    engine = Engine(_update)
+    return engine
 
 def create_supervised_evaluator(model, metrics={}, device=None):
     def _inference(engine, batch):  

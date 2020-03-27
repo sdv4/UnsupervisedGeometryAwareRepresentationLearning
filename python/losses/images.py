@@ -3,7 +3,7 @@ import numpy as np
 from models import resnet_low_level
 
 if torch.cuda.is_available():
-    device = "cuda:0"
+    device = "cuda:3"
 else:
     device = "cpu"
 

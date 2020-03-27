@@ -11,8 +11,6 @@ from torch.nn import Dropout
 import numpy as np
 
 from models.unet_utils import unetConv2
-from models.unet_utils import unetUpNoSKip
-from models.unet_utils import unetUp
 from models import mlp
 from models import encoder
 from models import unet_decoder
