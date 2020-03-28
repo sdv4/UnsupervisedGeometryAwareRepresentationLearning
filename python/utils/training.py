@@ -95,7 +95,7 @@ def create_adversarial_trainer(netG, netD, optimizerG, optimizerD, loss_fn_gen, 
         errG.backward()
         D_G_z2 = output.mean().item()
         optimizerG.step()
-        print("here!!!!!!!!!!!!!")
+
         return errG.item(), fake
     engine = Engine(_update)
     return engine

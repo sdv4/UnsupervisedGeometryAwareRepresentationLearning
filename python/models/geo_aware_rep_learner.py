@@ -161,8 +161,8 @@ class GeoAwareRepLearner(nn.Module):
         self.bottleneck_resolution = in_resolution//(2**(num_encoding_layers-1))  # ex: 16 for a 128x128 image (res = 128+128=256)
         self.from_latent_hidden_layers = from_latent_hidden_layers
         num_output_features = self.bottleneck_resolution**2 * self.filters[num_encoding_layers-1]  # TODO size of latent space? how diff from num_output_features_3d?
-        print('bottleneck_resolution', self.bottleneck_resolution,
-              'num_output_features', num_output_features)
+        #print('bottleneck_resolution', self.bottleneck_resolution,
+        #      'num_output_features', num_output_features)
 
         ######################################################################################################
         #  Create and initialize encoder  ####################################################################
@@ -280,12 +280,12 @@ class GeoAwareRepLearner(nn.Module):
                                             training=self.training,
                                             num_cameras=self.num_cameras)
 
-                print("shuffled appear: ", shuffled_appearance)
+                #print("shuffled appear: ", shuffled_appearance)
 
                 for i in range(0, num_pose_subbatches//2): # flip each subbatch with its neighbour to the right
                     _flip_segment(shuffled_appearance, start=i*2*self.subbatch_size, width=self.subbatch_size)
 
-            print("shuffled then flipped appear: ", shuffled_appearance)
+            #print("shuffled then flipped appear: ", shuffled_appearance)
 
             if self.shuffle_3d:  # TODO: why shuffle latent variables? note: True in config_train_encodeDecode but False in config_train_encodeDecode_pose
                 for i in range(0, num_pose_subbatches):
@@ -294,8 +294,8 @@ class GeoAwareRepLearner(nn.Module):
                                             end=(i+1) * self.subbatch_size,
                                             training=self.training,
                                             num_cameras=self.num_cameras)
-            print("subbatch_size: ", self.subbatch_size)
-            print("shuffled_pose: ", shuffled_pose)
+            #print("subbatch_size: ", self.subbatch_size)
+            #print("shuffled_pose: ", shuffled_pose)
         # infer inverse mapping
         shuffled_pose_inv = [-1] * batch_size  # ex. [-1, -1, -1, -1, -1, -1, -1, -1]
         for i, v in enumerate(shuffled_pose):  # ex. if shuffled_pose = [2, 0, 1, 3, 4, 7, 6, 5] -> shuffled_pose_inv = [1, 2, 0, 3, 4, 7, 6, 5]
@@ -334,8 +334,8 @@ class GeoAwareRepLearner(nn.Module):
             # index 0 is the appearance of the person at a different time and from a different angle
             # and index 1 is the appearence vec of the primary person
         latent_3d, latent_fg = self.encoder(has_fg, input_dict_cropped, batch_size)
-        print("latent_3d shape: ", latent_3d.shape)
-        print("latent fg shape: ", latent_fg.shape)
+        #print("latent_3d shape: ", latent_3d.shape)
+        #print("latent fg shape: ", latent_fg.shape)
 
         if self.skip_background:  # send bg to the decoder
             input_bg = input_dict['bg_crop'] # TODO take the rotated one/ new view

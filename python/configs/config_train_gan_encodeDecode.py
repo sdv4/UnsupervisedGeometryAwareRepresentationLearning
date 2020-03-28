@@ -21,7 +21,8 @@ config_dict = {
     # opt parameters
     'num_training_iterations': 600000,
     'save_every': 100000,
-    'generator_learning_rate': 1e-3,# baseline: 0.001=1e-3
+    #'generator_learning_rate': 1e-3,# baseline: 0.001=1e-3
+    'generator_learning_rate': 0.0002,
     'discriminator_learning_rate': 0.0002,
     'beta1':  0.5, # for discriminator optimizer
     'beta2': 0.999,

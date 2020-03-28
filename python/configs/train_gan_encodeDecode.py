@@ -143,7 +143,7 @@ class IgniteTrainNVS:
             avg_accuracy = utils_train.save_testing_error(save_path, engine, evaluator, vis, vis_windows)
 
             # save the best model
-            utils_train.save_model_state(save_path, trainer, avg_accuracy, model, optimizer, engine.state)
+            utils_train.save_model_state(save_path, trainer, avg_accuracy, netG, optimizerG, engine.state)
 
         # print test result
         @evaluator.on(Events.ITERATION_COMPLETED)
